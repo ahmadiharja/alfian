@@ -1,0 +1,164 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Alumni {
+  id              String   @id @default(cuid())
+  nia             String   @unique
+  namaLengkap     String
+  tempatLahir     String?
+  tanggalLahir    DateTime?
+  jenisKelamin    String?
+  nik             String?
+  noHp            String?
+  email           String?
+  alamat          String?
+  wilayah         String?
+  kecamatan       String?
+  kelurahan       String?
+  foto            String?
+
+  kampus          String?
+  fakultas        String?
+  jurusan         String?
+  angkatan        Int?
+  tahunLulus      Int?
+  ipk             Float?
+  predikat        String?
+  pendidikanAkhir String?
+  sedangStudiLanjut Boolean @default(false)
+
+  komisariat      String?
+  cabang          String?
+  rayon           String?
+  jabatanTertinggi String?
+  statusMapaba    Boolean @default(false)
+  tahunMapaba     Int?
+  statusPkd       Boolean @default(false)
+  statusPkl       Boolean @default(false)
+  statusPkn       Boolean @default(false)
+
+  statusPernikahan  String?
+  namaPasangan      String?
+  pekerjaanPasangan String?
+  jumlahAnak        Int?
+  tanggungan        Int?
+  namaAyah          String?
+  namaIbu           String?
+  pekerjaanOrangTua String?
+
+  pekerjaanUtama    String?
+  jabatan           String?
+  instansi          String?
+  alamatInstansi    String?
+  lamaBekerja       String?
+  estimasiPendapatan String?
+  pekerjaanSampingan String?
+
+  aktivitasSosial   String?
+  organisasiLain    String?
+  keahlian          String?
+  minatKontribusi   String?
+  bersediaMentor    Boolean @default(false)
+
+  statusVerifikasi  String  @default("pending")
+  statusAktif       Boolean @default(true)
+  dataLengkap       Boolean @default(false)
+  statusKader       String  @default("Mubtadi")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  registrasiKegiatan RegistrasiKegiatan[]
+  transaksiDonasi    TransaksiDonasi[]
+}
+
+model Kegiatan {
+  id          String   @id @default(cuid())
+  judul       String
+  deskripsi   String?
+  tanggal     DateTime
+  waktu       String?
+  lokasi      String?
+  kategori    String?
+  kuota       Int?
+  pemateri    String?
+  status      String   @default("mendatang")
+  anggaran    Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  registrasi  RegistrasiKegiatan[]
+}
+
+model RegistrasiKegiatan {
+  id         String   @id @default(cuid())
+  alumniId   String
+  kegiatanId String
+  statusReg  String   @default("terdaftar")
+  hadir      Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  alumni     Alumni   @relation(fields: [alumniId], references: [id])
+  kegiatan   Kegiatan @relation(fields: [kegiatanId], references: [id])
+
+  @@unique([alumniId, kegiatanId])
+}
+
+model ProgramDonasi {
+  id          String   @id @default(cuid())
+  judul       String
+  deskripsi   String?
+  target      Float
+  terkumpul   Float    @default(0)
+  deadline    DateTime?
+  status      String   @default("aktif")
+  icon        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  transaksi   TransaksiDonasi[]
+}
+
+model TransaksiDonasi {
+  id          String   @id @default(cuid())
+  programId   String
+  alumniId    String?
+  namaDonatur String?
+  nominal     Float
+  metode      String?
+  status      String   @default("pending")
+  createdAt   DateTime @default(now())
+
+  program     ProgramDonasi @relation(fields: [programId], references: [id])
+  alumni      Alumni?       @relation(fields: [alumniId], references: [id])
+}
+
+model Admin {
+  id        String   @id @default(cuid())
+  nama      String
+  email     String   @unique
+  password  String
+  jabatan   String?
+  foto      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Pengaturan {
+  id                String   @id @default(cuid())
+  namaCabang        String?
+  singkatan         String?
+  alamatSekretariat String?
+  emailResmi        String?
+  noTelepon         String?
+  ketuaAktif        String?
+  periode           String?
+  logo              String?
+  updatedAt         DateTime @updatedAt
+}
