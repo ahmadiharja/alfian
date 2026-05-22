@@ -1,21 +1,114 @@
 // Admin Dashboard for PMII Kediri Alumni App
 
+// === Admin Mobile Top Bar ===
+function AdminMobileTopBar({ title, onBack, onLogout }) {
+  return (
+    <div className="mobile-topbar admin-mobile-topbar"
+         style={{ background: "rgba(15,23,42,0.97)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+      <button className="mobile-topbar-btn" onClick={onBack}
+              style={{ color: "rgba(255,255,255,0.7)" }}>←</button>
+      <div className="mobile-topbar-title"
+           style={{ color: "white", fontFamily: "var(--font-display)" }}>
+        {title}
+      </div>
+      <button className="mobile-topbar-btn" onClick={onLogout}
+              style={{ color: "rgba(255,255,255,0.7)" }}>⏏</button>
+    </div>
+  );
+}
+
+// === Admin Bottom Nav (mobile) ===
+function AdminBottomNav({ page, setPage }) {
+  const [showMore, setShowMore] = React.useState(false);
+
+  const items = [
+    { key: "dashboard",    label: "Dashboard", icon: "📊" },
+    { key: "data-alumni",  label: "Alumni",    icon: "👥" },
+    { key: "events",       label: "Kegiatan",  icon: "📅" },
+    { key: "donasi-admin", label: "Donasi",    icon: "💰" },
+    { key: "_more",        label: "Lainnya",   icon: "⋯" },
+  ];
+
+  const moreItems = [
+    { key: "sebaran",    label: "Sebaran & Analitik", icon: "📍" },
+    { key: "verifikasi", label: "Verifikasi",          icon: "✅", badge: 8 },
+    { key: "pengaturan", label: "Pengaturan",          icon: "⚙️" },
+  ];
+
+  const moreKeys = ["sebaran", "verifikasi", "pengaturan"];
+
+  return (
+    <>
+      <nav className="bottom-nav admin-bottom-nav">
+        <div className="bottom-nav-inner">
+          {items.map(it => (
+            <button key={it.key}
+              className={`bottom-nav-item ${
+                page === it.key || (it.key === "_more" && moreKeys.includes(page)) ? "active" : ""
+              }`}
+              onClick={() => it.key === "_more" ? setShowMore(true) : setPage(it.key)}>
+              <span className="nav-icon">{it.icon}</span>
+              <span className="nav-label">{it.label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {showMore && (
+        <div className="mobile-sheet" onClick={() => setShowMore(false)}>
+          <div className="mobile-sheet-backdrop" />
+          <div className="mobile-sheet-content" onClick={e => e.stopPropagation()}>
+            <div className="mobile-sheet-handle" />
+            <div style={{ padding: "0 20px 16px" }}>
+              <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, color: "var(--ink)" }}>
+                Menu Lainnya
+              </div>
+              {moreItems.map(it => (
+                <button key={it.key}
+                  onClick={() => { setPage(it.key); setShowMore(false); }}
+                  style={{
+                    width: "100%", display: "flex", alignItems: "center", gap: 14,
+                    padding: "14px 16px", borderRadius: 12, border: "none",
+                    background: page === it.key ? "var(--blue-50)" : "transparent",
+                    cursor: "pointer", fontFamily: "inherit", marginBottom: 4,
+                    fontSize: 15, fontWeight: 500, color: "var(--ink)", textAlign: "left",
+                  }}>
+                  <span style={{ fontSize: 22 }}>{it.icon}</span>
+                  <span style={{ flex: 1 }}>{it.label}</span>
+                  {it.badge && (
+                    <span style={{
+                      background: "var(--gold-500)", color: "var(--blue-900)",
+                      fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
+                    }}>
+                      {it.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // === Admin Sidebar ===
 function AdminSidebar({ page, setPage, onLogout }) {
   const sections = [
     {
       title: "Utama",
       items: [
-        { key: "dashboard", label: "Dashboard", icon: "▦" },
-        { key: "data-alumni", label: "Data Alumni", icon: "◉" },
-        { key: "sebaran", label: "Sebaran & Analitik", icon: "◍" },
+        { key: "dashboard",   label: "Dashboard",        icon: "▦" },
+        { key: "data-alumni", label: "Data Alumni",       icon: "◉" },
+        { key: "sebaran",     label: "Sebaran & Analitik",icon: "◍" },
       ]
     },
     {
       title: "Kegiatan",
       items: [
-        { key: "events", label: "Kegiatan", icon: "◇" },
-        { key: "donasi-admin", label: "Donasi", icon: "◆" },
+        { key: "events",       label: "Kegiatan", icon: "◇" },
+        { key: "donasi-admin", label: "Donasi",   icon: "◆" },
       ]
     },
     {
@@ -28,9 +121,9 @@ function AdminSidebar({ page, setPage, onLogout }) {
   ];
 
   return (
-    <aside style={{
+    <aside className="desktop-sidebar" style={{
       width: 260, background: "var(--blue-900)", color: "rgba(255,255,255,0.85)",
-      display: "flex", flexDirection: "column", flexShrink: 0,
+      flexDirection: "column", flexShrink: 0,
       borderRight: "1px solid var(--blue-800)",
       position: "sticky", top: 0, height: "100vh", alignSelf: "flex-start",
     }}>
@@ -115,14 +208,16 @@ function AdminSidebar({ page, setPage, onLogout }) {
   );
 }
 
-// === Admin Top Bar ===
+// === Admin Top Bar (desktop) ===
 function AdminTopBar({ title, subtitle, actions }) {
   return (
-    <div style={{ background: "rgba(255,255,255,0.92)",
-                  backdropFilter: "blur(10px)",
-                  borderBottom: "1px solid var(--line)",
-                  padding: "20px 32px", display: "flex", alignItems: "center", gap: 24,
-                  position: "sticky", top: 0, zIndex: 20 }}>
+    <div className="admin-topbar-desktop" style={{
+      background: "rgba(255,255,255,0.92)",
+      backdropFilter: "blur(10px)",
+      borderBottom: "1px solid var(--line)",
+      padding: "20px 32px", display: "flex", alignItems: "center", gap: 24,
+      position: "sticky", top: 0, zIndex: 20,
+    }}>
       <div style={{ flex: 1 }}>
         <h1 className="display" style={{ fontSize: 26, fontWeight: 500, margin: 0,
                                           letterSpacing: "-0.02em" }}>
@@ -163,9 +258,9 @@ function AdminDashboard() {
           </>
         }
       />
-      <div style={{ padding: 32 }}>
-        {/* KPI Row */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+      <div className="admin-main" style={{ padding: 32 }}>
+        {/* KPI Row — horizontal scroll on mobile, grid on desktop */}
+        <div className="stats-scroll grid-4col" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
           <StatCard label="Total Alumni" value="1,847" delta="6.7%" sub="vs bulan lalu" accent="var(--blue-500)" />
           <StatCard label="Data Lengkap" value="78%" sub="1,441 dari 1,847" accent="oklch(0.65 0.15 145)" />
           <StatCard label="Aktif 30 Hari" value="612" sub="33% engagement" accent="var(--gold-500)" />
@@ -173,7 +268,7 @@ function AdminDashboard() {
         </div>
 
         {/* Row 2: Sebaran Wilayah & Pekerjaan */}
-        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginTop: 16 }}>
+        <div className="grid-14fr" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginTop: 16 }}>
           <div className="card" style={{ padding: 24 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
                           marginBottom: 20 }}>
@@ -234,7 +329,7 @@ function AdminDashboard() {
         </div>
 
         {/* Row 3: Universitas + Recent Activity */}
-        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16, marginTop: 16 }}>
+        <div className="grid-12fr" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16, marginTop: 16 }}>
           <div className="card" style={{ padding: 24 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
@@ -286,11 +381,11 @@ function AdminDashboard() {
             </div>
             <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
               {[
-                { who: "Ahmad Fauzi", what: "memperbarui data pekerjaan", when: "2 menit lalu", icon: "◉" },
-                { who: "Reza Maulana", what: "mendaftarkan data baru", when: "14 menit lalu", icon: "＋" },
-                { who: "Lailatul M.", what: "mendaftar event Workshop", when: "1 jam lalu", icon: "◇" },
-                { who: "Donatur Anonim", what: "donasi Rp 250.000", when: "3 jam lalu", icon: "◆" },
-                { who: "Siti Nur H.", what: "verifikasi data tertunda", when: "5 jam lalu", icon: "✓" },
+                { who: "Ahmad Fauzi",   what: "memperbarui data pekerjaan",  when: "2 menit lalu",  icon: "◉" },
+                { who: "Reza Maulana",  what: "mendaftarkan data baru",       when: "14 menit lalu", icon: "＋" },
+                { who: "Lailatul M.",   what: "mendaftar event Workshop",     when: "1 jam lalu",    icon: "◇" },
+                { who: "Donatur Anonim",what: "donasi Rp 250.000",            when: "3 jam lalu",    icon: "◆" },
+                { who: "Siti Nur H.",   what: "verifikasi data tertunda",     when: "5 jam lalu",    icon: "✓" },
               ].map((a, i) => (
                 <div key={i} style={{ display: "flex", gap: 12, padding: "10px 12px",
                                        borderRadius: 8, background: i === 0 ? "var(--blue-50)" : "transparent" }}>
@@ -302,7 +397,8 @@ function AdminDashboard() {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13 }}>
-                      <strong>{a.who}</strong> <span style={{ color: "var(--ink-soft)" }}>{a.what}</span>
+                      <strong>{a.who}</strong>{" "}
+                      <span style={{ color: "var(--ink-soft)" }}>{a.what}</span>
                     </div>
                     <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{a.when}</div>
                   </div>
@@ -313,7 +409,7 @@ function AdminDashboard() {
         </div>
 
         {/* Row 4: Event upcoming + Donasi */}
-        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginTop: 16 }}>
+        <div className="grid-14fr" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginTop: 16 }}>
           <div className="card" style={{ padding: 24 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
                           marginBottom: 16 }}>
@@ -400,4 +496,4 @@ function AdminDashboard() {
   );
 }
 
-Object.assign(window, { AdminSidebar, AdminTopBar, AdminDashboard });
+Object.assign(window, { AdminSidebar, AdminTopBar, AdminDashboard, AdminBottomNav, AdminMobileTopBar });

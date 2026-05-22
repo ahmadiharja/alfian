@@ -7,6 +7,17 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "density": "comfortable"
 }/*EDITMODE-END*/;
 
+// Page title map for AdminMobileTopBar
+const adminPageTitle = {
+  "dashboard":    "Dashboard",
+  "data-alumni":  "Data Alumni",
+  "sebaran":      "Sebaran & Analitik",
+  "events":       "Kegiatan",
+  "donasi-admin": "Donasi",
+  "verifikasi":   "Verifikasi",
+  "pengaturan":   "Pengaturan",
+};
+
 // === Login Modal ===
 function LoginModal({ onClose, onLogin }) {
   const [email, setEmail] = React.useState('admin@ikapmii.id');
@@ -31,33 +42,50 @@ function LoginModal({ onClose, onLogin }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div className="card" style={{ width: 400, padding: 32 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '16px' }}>
+      <div className="card" style={{ width: '100%', maxWidth: 400, padding: 32 }}>
         <div style={{ marginBottom: 24 }}>
           <PMIILogo />
-          <h2 style={{ margin: '16px 0 4px', fontFamily: 'var(--font-display)', fontSize: 24 }}>Masuk Admin</h2>
-          <p style={{ color: 'var(--ink-soft)', margin: 0, fontSize: 14 }}>IKA-PMII Kediri Raya Console</p>
+          <h2 style={{ margin: '16px 0 4px', fontFamily: 'var(--font-display)', fontSize: 24 }}>
+            Masuk Admin
+          </h2>
+          <p style={{ color: 'var(--ink-soft)', margin: 0, fontSize: 14 }}>
+            IKA-PMII Kediri Raya Console
+          </p>
         </div>
         <form onSubmit={handleLogin}>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Email</label>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+              Email
+            </label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
-              style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 8, fontSize: 14 }} />
+              style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--line)',
+                       borderRadius: 8, fontSize: 14 }} />
           </div>
           <div style={{ marginBottom: 20 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Password</label>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+              Password
+            </label>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} required
-              style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 8, fontSize: 14 }} />
+              style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--line)',
+                       borderRadius: 8, fontSize: 14 }} />
           </div>
           {error && <div style={{ color: 'red', fontSize: 13, marginBottom: 12 }}>{error}</div>}
-          <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={loading}>
+          <button type="submit" className="btn btn-primary"
+                  style={{ width: '100%', justifyContent: 'center' }} disabled={loading}>
             {loading ? 'Memproses...' : 'Masuk'}
           </button>
-          <button type="button" onClick={onClose} style={{ width: '100%', marginTop: 8, padding: '10px', border: 'none', background: 'none', color: 'var(--ink-soft)', cursor: 'pointer', fontSize: 14 }}>
+          <button type="button" onClick={onClose}
+                  style={{ width: '100%', marginTop: 8, padding: '10px', border: 'none',
+                           background: 'none', color: 'var(--ink-soft)', cursor: 'pointer',
+                           fontSize: 14 }}>
             Batal
           </button>
         </form>
-        <div style={{ marginTop: 16, padding: 12, background: 'var(--bg)', borderRadius: 8, fontSize: 12, color: 'var(--ink-soft)' }}>
+        <div style={{ marginTop: 16, padding: 12, background: 'var(--bg)', borderRadius: 8,
+                      fontSize: 12, color: 'var(--ink-soft)' }}>
           Demo: admin@ikapmii.id / pmii2024
         </div>
       </div>
@@ -132,27 +160,51 @@ function App() {
     <div data-screen-label={screenLabel}>
       {mode === "public" ? (
         <>
+          {/* Desktop navigation */}
           <PublicNav page={publicPage} setPage={setPublicPage}
                       onSwitchToAdmin={handleAdminAccess} />
-          {publicPage === "beranda" && <Beranda setPage={setPublicPage} />}
-          {publicPage === "tentang" && <Tentang />}
-          {publicPage === "direktori" && <Direktori />}
-          {publicPage === "kegiatan" && <Kegiatan />}
-          {publicPage === "donasi" && <Donasi />}
+          {/* Mobile sticky top bar */}
+          <MobileTopBar page={publicPage} onAdmin={handleAdminAccess} />
+
+          {/* Page content — padded for bottom nav on mobile */}
+          <div className="has-bottom-nav">
+            {publicPage === "beranda"   && <Beranda setPage={setPublicPage} />}
+            {publicPage === "tentang"   && <Tentang />}
+            {publicPage === "direktori" && <Direktori />}
+            {publicPage === "kegiatan"  && <Kegiatan />}
+            {publicPage === "donasi"    && <Donasi />}
+          </div>
+
+          {/* Mobile bottom navigation */}
+          <PublicBottomNav page={publicPage} setPage={setPublicPage}
+                            onAdmin={handleAdminAccess} />
         </>
       ) : (
         <div style={{ display: "flex", minHeight: "100vh" }}>
+          {/* Desktop sidebar */}
           <AdminSidebar page={adminPage} setPage={setAdminPage}
                          onLogout={handleLogout} />
-          <main style={{ flex: 1, minWidth: 0 }}>
-            {adminPage === "dashboard" && <AdminDashboard />}
-            {adminPage === "data-alumni" && <AdminDataAlumni onDetail={setDetail} />}
-            {adminPage === "sebaran" && <AdminSebaran />}
-            {adminPage === "events" && <AdminEvents />}
+
+          {/* Main content area */}
+          <main style={{ flex: 1, minWidth: 0 }} className="has-bottom-nav">
+            {/* Mobile top bar for admin */}
+            <AdminMobileTopBar
+              title={adminPageTitle[adminPage] || "Admin"}
+              onBack={handleLogout}
+              onLogout={handleLogout}
+            />
+
+            {adminPage === "dashboard"    && <AdminDashboard />}
+            {adminPage === "data-alumni"  && <AdminDataAlumni onDetail={setDetail} />}
+            {adminPage === "sebaran"      && <AdminSebaran />}
+            {adminPage === "events"       && <AdminEvents />}
             {adminPage === "donasi-admin" && <AdminDonasi />}
-            {adminPage === "verifikasi" && <AdminVerifikasi />}
-            {adminPage === "pengaturan" && <AdminPengaturan />}
+            {adminPage === "verifikasi"   && <AdminVerifikasi />}
+            {adminPage === "pengaturan"   && <AdminPengaturan />}
           </main>
+
+          {/* Mobile bottom nav for admin */}
+          <AdminBottomNav page={adminPage} setPage={setAdminPage} />
         </div>
       )}
 
@@ -163,7 +215,9 @@ function App() {
       )}
       {formOpen && <AlumniForm onClose={() => setFormOpen(false)} />}
 
-      {showLogin && <LoginModal onClose={() => setShowLogin(false)} onLogin={handleLoginSuccess} />}
+      {showLogin && (
+        <LoginModal onClose={() => setShowLogin(false)} onLogin={handleLoginSuccess} />
+      )}
 
       {/* Tweaks */}
       <TweaksPanel title="Tweaks">
@@ -173,7 +227,7 @@ function App() {
             value={t.section} onChange={v => { setTweak("section", v); setMode(v); }}
             options={[
               { label: "Publik", value: "public" },
-              { label: "Admin", value: "admin" },
+              { label: "Admin",  value: "admin" },
             ]}
           />
         </TweakSection>
@@ -184,8 +238,8 @@ function App() {
             onChange={v => setTweak("accentMix", v)}
             options={[
               { label: "Gold Warm (default)", value: "gold-warm" },
-              { label: "Amber Vivid", value: "amber-vivid" },
-              { label: "Lemon Cool", value: "lemon-cool" },
+              { label: "Amber Vivid",         value: "amber-vivid" },
+              { label: "Lemon Cool",          value: "lemon-cool" },
             ]}
           />
         </TweakSection>
@@ -195,22 +249,24 @@ function App() {
             value={t.displayFont}
             onChange={v => setTweak("displayFont", v)}
             options={[
-              { label: "Fraunces (serif)", value: "fraunces" },
-              { label: "Instrument Serif", value: "instrument" },
-              { label: "Plus Jakarta Sans", value: "sans" },
+              { label: "Fraunces (serif)",    value: "fraunces" },
+              { label: "Instrument Serif",    value: "instrument" },
+              { label: "Plus Jakarta Sans",   value: "sans" },
             ]}
           />
         </TweakSection>
         <TweakSection label="Quick Navigate">
           <div style={{ display: "grid", gap: 6 }}>
             {mode === "public" ? (
-              [["beranda","Beranda"],["tentang","Tentang"],["direktori","Direktori"],["kegiatan","Kegiatan"],["donasi","Donasi"]].map(([k,l]) => (
+              [["beranda","Beranda"],["tentang","Tentang"],["direktori","Direktori"],
+               ["kegiatan","Kegiatan"],["donasi","Donasi"]].map(([k,l]) => (
                 <button key={k} onClick={() => setPublicPage(k)}
                          style={tweakNavStyle(publicPage === k)}>{l}</button>
               ))
             ) : (
               [["dashboard","Dashboard"],["data-alumni","Data Alumni"],["sebaran","Sebaran"],
-                ["events","Kegiatan"],["donasi-admin","Donasi"],["verifikasi","Verifikasi"],["pengaturan","Pengaturan"]].map(([k,l]) => (
+               ["events","Kegiatan"],["donasi-admin","Donasi"],["verifikasi","Verifikasi"],
+               ["pengaturan","Pengaturan"]].map(([k,l]) => (
                 <button key={k} onClick={() => setAdminPage(k)}
                          style={tweakNavStyle(adminPage === k)}>{l}</button>
               ))
