@@ -1,9 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
 const authenticateToken = require('../middleware/auth');
-
-const prisma = new PrismaClient();
+const prisma = require('../lib/prisma');
 
 // Helper: groupBy using raw aggregation (SQLite compatible)
 async function groupByField(field, whereClause = {}) {

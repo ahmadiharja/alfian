@@ -1,10 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
 const authenticateToken = require('../middleware/auth');
 const upload = require('../middleware/upload');
-
-const prisma = new PrismaClient();
+const prisma = require('../lib/prisma');
 
 const SETTINGS_ID = 'settings-main';
 
