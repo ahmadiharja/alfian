@@ -102,6 +102,7 @@ function App() {
   const [formOpen, setFormOpen] = React.useState(false);
   const [showLogin, setShowLogin] = React.useState(false);
   const [isLoggedIn, setIsLoggedIn] = React.useState(Auth.isLoggedIn());
+  const isMobile = useIsMobile();
 
   // Sync mode with tweak
   React.useEffect(() => { if (t.section && t.section !== mode) setMode(t.section); }, [t.section]);
@@ -160,14 +161,14 @@ function App() {
     <div data-screen-label={screenLabel}>
       {mode === "public" ? (
         <>
-          {/* Desktop navigation */}
-          <PublicNav page={publicPage} setPage={setPublicPage}
-                      onSwitchToAdmin={handleAdminAccess} />
-          {/* Mobile sticky top bar */}
-          <MobileTopBar page={publicPage} onAdmin={handleAdminAccess} />
+          {/* Render correct nav per device — JS-based, not CSS-based */}
+          {isMobile
+            ? <MobileTopBar page={publicPage} onAdmin={handleAdminAccess} />
+            : <PublicNav page={publicPage} setPage={setPublicPage} onSwitchToAdmin={handleAdminAccess} />
+          }
 
-          {/* Page content — padded for bottom nav on mobile */}
-          <div className="has-bottom-nav">
+          {/* Page content */}
+          <div style={{ paddingBottom: isMobile ? 80 : 0 }}>
             {publicPage === "beranda"   && <Beranda setPage={setPublicPage} />}
             {publicPage === "tentang"   && <Tentang />}
             {publicPage === "direktori" && <Direktori />}
@@ -176,23 +177,27 @@ function App() {
           </div>
 
           {/* Mobile bottom navigation */}
-          <PublicBottomNav page={publicPage} setPage={setPublicPage}
-                            onAdmin={handleAdminAccess} />
+          {isMobile && (
+            <PublicBottomNav page={publicPage} setPage={setPublicPage} onAdmin={handleAdminAccess} />
+          )}
         </>
       ) : (
         <div style={{ display: "flex", minHeight: "100vh" }}>
-          {/* Desktop sidebar */}
-          <AdminSidebar page={adminPage} setPage={setAdminPage}
-                         onLogout={handleLogout} />
+          {/* Desktop sidebar (hidden on mobile) */}
+          {!isMobile && (
+            <AdminSidebar page={adminPage} setPage={setAdminPage} onLogout={handleLogout} />
+          )}
 
-          {/* Main content area */}
-          <main style={{ flex: 1, minWidth: 0 }} className="has-bottom-nav">
-            {/* Mobile top bar for admin */}
-            <AdminMobileTopBar
-              title={adminPageTitle[adminPage] || "Admin"}
-              onBack={handleLogout}
-              onLogout={handleLogout}
-            />
+          {/* Main content */}
+          <main style={{ flex: 1, minWidth: 0, paddingBottom: isMobile ? 80 : 0 }}>
+            {/* Mobile admin top bar */}
+            {isMobile && (
+              <AdminMobileTopBar
+                title={adminPageTitle[adminPage] || "Admin"}
+                onBack={handleLogout}
+                onLogout={handleLogout}
+              />
+            )}
 
             {adminPage === "dashboard"    && <AdminDashboard />}
             {adminPage === "data-alumni"  && <AdminDataAlumni onDetail={setDetail} />}
@@ -203,8 +208,10 @@ function App() {
             {adminPage === "pengaturan"   && <AdminPengaturan />}
           </main>
 
-          {/* Mobile bottom nav for admin */}
-          <AdminBottomNav page={adminPage} setPage={setAdminPage} />
+          {/* Mobile admin bottom nav */}
+          {isMobile && (
+            <AdminBottomNav page={adminPage} setPage={setAdminPage} />
+          )}
         </div>
       )}
 
