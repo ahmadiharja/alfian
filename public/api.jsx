@@ -54,7 +54,10 @@ const KegiatanAPI = {
 
 // Donasi API
 const DonasiAPI = {
-  programs: () => apiFetch('/donasi/program'),
+  programs: (params = {}) => apiFetch('/donasi/program?' + new URLSearchParams(params)),
+  createProgram: (data) => apiFetch('/donasi/program', { method: 'POST', body: JSON.stringify(data) }),
+  updateProgram: (id, data) => apiFetch('/donasi/program/' + id, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteProgram: (id) => apiFetch('/donasi/program/' + id, { method: 'DELETE' }),
   transaksi: (params = {}) => apiFetch('/donasi/transaksi?' + new URLSearchParams(params)),
   createTransaksi: (data) => apiFetch('/donasi/transaksi', { method: 'POST', body: JSON.stringify(data) }),
   summary: () => apiFetch('/donasi/summary'),

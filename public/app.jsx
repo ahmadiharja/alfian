@@ -100,6 +100,9 @@ function App() {
   const [adminPage, setAdminPage] = React.useState("dashboard");
   const [detail, setDetail] = React.useState(null);
   const [formOpen, setFormOpen] = React.useState(false);
+  const [editAlumni, setEditAlumni] = React.useState(null);
+  const [deleteAlumni, setDeleteAlumni] = React.useState(null);
+  const [deletingAlumni, setDeletingAlumni] = React.useState(false);
   const [showLogin, setShowLogin] = React.useState(false);
   const [isLoggedIn, setIsLoggedIn] = React.useState(Auth.isLoggedIn());
   const isMobile = useIsMobile();
@@ -200,7 +203,13 @@ function App() {
             )}
 
             {adminPage === "dashboard"    && <AdminDashboard />}
-            {adminPage === "data-alumni"  && <AdminDataAlumni onDetail={setDetail} />}
+            {adminPage === "data-alumni"  && (
+              <AdminDataAlumni
+                onDetail={setDetail}
+                onEdit={a => { setEditAlumni(a); setFormOpen(true); }}
+                onDelete={a => setDeleteAlumni(a)}
+              />
+            )}
             {adminPage === "sebaran"      && <AdminSebaran />}
             {adminPage === "events"       && <AdminEvents />}
             {adminPage === "donasi-admin" && <AdminDonasi />}
@@ -218,9 +227,37 @@ function App() {
       {detail && (
         <AlumniDetail alumni={detail}
                        onClose={() => setDetail(null)}
-                       onEdit={() => { setDetail(null); setFormOpen(true); }} />
+                       onEdit={() => { setEditAlumni(detail); setDetail(null); setFormOpen(true); }}
+                       onDelete={() => { setDeleteAlumni(detail); setDetail(null); }} />
       )}
-      {formOpen && <AlumniForm onClose={() => setFormOpen(false)} />}
+      {formOpen && (
+        <AlumniForm
+          editData={editAlumni}
+          onClose={() => { setFormOpen(false); setEditAlumni(null); }}
+          onSuccess={() => { if (window.__refreshAlumni) window.__refreshAlumni(); }}
+        />
+      )}
+      {deleteAlumni && (
+        <ConfirmModal
+          title="Hapus Data Alumni"
+          message={`Hapus data "${deleteAlumni.namaLengkap || deleteAlumni.nama}"? Tindakan ini tidak dapat dibatalkan.`}
+          loading={deletingAlumni}
+          danger
+          onCancel={() => setDeleteAlumni(null)}
+          onConfirm={async () => {
+            setDeletingAlumni(true);
+            try {
+              await AlumniAPI.delete(deleteAlumni.id);
+              setDeleteAlumni(null);
+              if (window.__refreshAlumni) window.__refreshAlumni();
+            } catch (e) {
+              alert('Gagal menghapus: ' + e.message);
+            } finally {
+              setDeletingAlumni(false);
+            }
+          }}
+        />
+      )}
 
       {showLogin && (
         <LoginModal onClose={() => setShowLogin(false)} onLogin={handleLoginSuccess} />
@@ -281,9 +318,7 @@ function App() {
           </div>
         </TweakSection>
         <TweakSection label="Aksi Cepat">
-          <TweakButton label="＋ Buka Form Tambah Alumni" onClick={() => setFormOpen(true)} />
-          <TweakButton label="👁 Lihat Detail Alumni Pertama"
-                        onClick={() => setDetail(ALUMNI_LIST[0])} />
+          <TweakButton label="＋ Buka Form Tambah Alumni" onClick={() => { setEditAlumni(null); setFormOpen(true); }} />
         </TweakSection>
       </TweaksPanel>
     </div>

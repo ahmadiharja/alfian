@@ -177,7 +177,13 @@ function tglID(iso) {
   return `${d.getDate()} ${bulan[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+// Shared select input style — exposed globally for admin forms
+const selectStyle = {
+  border: "1px solid var(--line)", borderRadius: 8,
+  background: "white", fontFamily: "inherit", cursor: "pointer",
+};
+
 Object.assign(window, {
   PMIILogo, StatCard, BarChart, Donut, Avatar, PhotoSlot,
-  rupiah, Progress, tglID
+  rupiah, Progress, tglID, selectStyle,
 });
