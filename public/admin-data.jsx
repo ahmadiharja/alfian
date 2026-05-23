@@ -368,256 +368,614 @@ function AdminSebaran() {
   );
 }
 
-// === Real GeoJSON SVG Map ===
+// === Real GeoJSON SVG Map — Interactive ===
+// Module-level constants (stable, no re-creation per render)
+const GEO_W = 600, GEO_H = 390;
+const GEO_MAX_ZOOM = 12, GEO_MIN_ZOOM = 0.9;
+const GEO_INIT_VB = { x: 0, y: 0, w: GEO_W, h: GEO_H };
+function geoClamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+const MAP_BTN_BASE = {
+  padding: "5px 10px", border: "none", background: "white",
+  color: "var(--ink)", cursor: "pointer", fontFamily: "inherit",
+  fontSize: 12, fontWeight: 500, lineHeight: 1, display: "inline-flex",
+  alignItems: "center", gap: 4,
+};
+
 function KediriGeoMap() {
   const [kotaGeo, setKotaGeo] = React.useState(null);
   const [kabGeo, setKabGeo] = React.useState(null);
   const [sebaranData, setSebaranData] = React.useState([]);
-  const [tooltip, setTooltip] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
+  const [tooltip, setTooltip] = React.useState(null);
+  const [selected, setSelected] = React.useState(null);
+  const [hovering, setHovering] = React.useState(null);
+  const [showBadges, setShowBadges] = React.useState(true);
+  const [showLabels, setShowLabels] = React.useState(true);
+  const [activeLayer, setActiveLayer] = React.useState('both');
+  const [vb, setVb] = React.useState(GEO_INIT_VB);
+  const dragRef = React.useRef(null);
   const svgRef = React.useRef(null);
 
+  // Data loading
   React.useEffect(() => {
     Promise.all([
       fetch('/assets/kota-kediri-map.geojson').then(r => r.json()),
       fetch('/assets/kab-kediri-map.geojson').then(r => r.json()),
-      AnalyticsAPI.sebaran().then(r => (r.data && r.data.byKecamatan) || []).catch(() => []),
+      AnalyticsAPI.sebaran()
+        .then(r => (r.data && r.data.byKecamatan) || [])
+        .catch(() => []),
     ]).then(([kota, kab, sebaran]) => {
-      setKotaGeo(kota);
-      setKabGeo(kab);
-      setSebaranData(sebaran);
-      setLoading(false);
+      setKotaGeo(kota); setKabGeo(kab); setSebaranData(sebaran); setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
 
-  if (loading) {
-    return (
-      <div style={{ height: 400, display: "flex", alignItems: "center", justifyContent: "center",
-                    color: "var(--ink-soft)", fontSize: 13, borderRadius: 12,
-                    background: "var(--bg)", border: "1px solid var(--line)" }}>
+  // Non-passive wheel handler for zoom (must be attached imperatively)
+  const handleWheel = React.useCallback((e) => {
+    e.preventDefault();
+    const rect = svgRef.current.getBoundingClientRect();
+    setVb(prev => {
+      const sx = prev.x + (e.clientX - rect.left) / rect.width * prev.w;
+      const sy = prev.y + (e.clientY - rect.top) / rect.height * prev.h;
+      const factor = e.deltaY > 0 ? 1.25 : 0.8;
+      const newW = geoClamp(prev.w * factor, GEO_W / GEO_MAX_ZOOM, GEO_W / GEO_MIN_ZOOM);
+      const newH = newW * (GEO_H / GEO_W);
+      const rx = (sx - prev.x) / prev.w, ry = (sy - prev.y) / prev.h;
+      return { x: sx - rx * newW, y: sy - ry * newH, w: newW, h: newH };
+    });
+  }, []);
+
+  React.useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [handleWheel]);
+
+  if (loading) return (
+    <div style={{ height: 380, display: "flex", alignItems: "center", justifyContent: "center",
+                  color: "var(--ink-soft)", fontSize: 13, borderRadius: 12,
+                  background: "var(--bg)", border: "1px solid var(--line)" }}>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 28, marginBottom: 8 }}>🗺</div>
         Memuat peta Kediri...
       </div>
-    );
-  }
+    </div>
+  );
 
-  const allFeatures = [
-    ...((kotaGeo && kotaGeo.features) || []),
-    ...((kabGeo && kabGeo.features) || []),
-  ];
+  const kotaFeatures = (kotaGeo && kotaGeo.features) || [];
+  const kabFeatures  = (kabGeo  && kabGeo.features)  || [];
+  const allFeatures  = [...kotaFeatures, ...kabFeatures];
 
-  if (allFeatures.length === 0) {
-    return (
-      <div style={{ height: 400, display: "flex", alignItems: "center", justifyContent: "center",
-                    color: "var(--ink-soft)", fontSize: 13, borderRadius: 12,
-                    background: "var(--bg)", border: "1px solid var(--line)" }}>
-        Gagal memuat data peta
-      </div>
-    );
-  }
+  if (allFeatures.length === 0) return (
+    <div style={{ height: 380, display: "flex", alignItems: "center", justifyContent: "center",
+                  color: "var(--ink-soft)", borderRadius: 12, background: "var(--bg)", border: "1px solid var(--line)" }}>
+      Gagal memuat data peta
+    </div>
+  );
 
-  // Compute bounding box from all coordinates
+  // --- Projection setup ---
   let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
   function scanCoords(arr) {
     if (typeof arr[0] === 'number') {
-      const lon = arr[0], lat = arr[1];
-      if (lon < minLon) minLon = lon;
-      if (lon > maxLon) maxLon = lon;
-      if (lat < minLat) minLat = lat;
-      if (lat > maxLat) maxLat = lat;
-    } else {
-      arr.forEach(scanCoords);
-    }
+      if (arr[0] < minLon) minLon = arr[0]; if (arr[0] > maxLon) maxLon = arr[0];
+      if (arr[1] < minLat) minLat = arr[1]; if (arr[1] > maxLat) maxLat = arr[1];
+    } else { arr.forEach(scanCoords); }
   }
   allFeatures.forEach(f => scanCoords(f.geometry.coordinates));
 
-  const W = 600, H = 400, PAD = 12;
-  const lonSpan = maxLon - minLon;
-  const latSpan = maxLat - minLat;
-  const scaleX = (W - PAD * 2) / lonSpan;
-  const scaleY = (H - PAD * 2) / latSpan;
-  const scale = Math.min(scaleX, scaleY);
-  // Center the map
-  const offX = PAD + ((W - PAD * 2) - lonSpan * scale) / 2;
-  const offY = PAD + ((H - PAD * 2) - latSpan * scale) / 2;
+  const PAD = 16;
+  const lonSpan = maxLon - minLon, latSpan = maxLat - minLat;
+  const scaleGeo = Math.min((GEO_W - PAD * 2) / lonSpan, (GEO_H - PAD * 2) / latSpan);
+  const offX = PAD + ((GEO_W - PAD * 2) - lonSpan * scaleGeo) / 2;
+  const offY = PAD + ((GEO_H - PAD * 2) - latSpan * scaleGeo) / 2;
 
   function project(lon, lat) {
-    return [
-      offX + (lon - minLon) * scale,
-      H - offY - (lat - minLat) * scale,
-    ];
+    return [offX + (lon - minLon) * scaleGeo, GEO_H - offY - (lat - minLat) * scaleGeo];
   }
-
   function ringToD(ring) {
-    return ring.map((coord, i) => {
-      const [x, y] = project(coord[0], coord[1]);
+    return ring.map((c, i) => {
+      const [x, y] = project(c[0], c[1]);
       return (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1);
     }).join('') + 'Z';
   }
-
-  function featureToD(geometry) {
-    // MultiPolygon: coords = [[[ring], ...], ...]
-    return geometry.coordinates.map(polygon =>
-      polygon.map(ringToD).join('')
-    ).join('');
+  function featureToD(geom) {
+    return geom.coordinates.map(poly => poly.map(ringToD).join('')).join('');
+  }
+  function getCentroid(geom) {
+    const ring = geom.coordinates[0][0];
+    let sLon = 0, sLat = 0;
+    ring.forEach(c => { sLon += c[0]; sLat += c[1]; });
+    return project(sLon / ring.length, sLat / ring.length);
   }
 
-  function getCentroid(geometry) {
-    // Use centroid of first ring of first polygon
-    const ring = geometry.coordinates[0][0];
-    let sumLon = 0, sumLat = 0;
-    ring.forEach(c => { sumLon += c[0]; sumLat += c[1]; });
-    return project(sumLon / ring.length, sumLat / ring.length);
-  }
-
-  // Build alumni count lookup from API data + static fallback
+  // --- Count lookup ---
   const countMap = {};
-  // Static fallback
   KECAMATAN_KOTA.forEach(k => { countMap[k.nama.toLowerCase()] = k.jumlah; });
   KECAMATAN_KAB.forEach(k => { countMap[k.nama.toLowerCase()] = k.jumlah; });
-  // API data overrides
-  sebaranData.forEach(d => {
-    if (d.name) countMap[d.name.toLowerCase()] = d.count;
-  });
-
-  function getCount(districtName) {
-    if (!districtName) return 0;
-    const key = districtName.toLowerCase();
+  sebaranData.forEach(d => { if (d.name) countMap[d.name.toLowerCase()] = d.count; });
+  function getCount(name) {
+    if (!name) return 0;
+    const key = name.toLowerCase();
     if (countMap[key] !== undefined) return countMap[key];
-    // Partial match (e.g. "Kota Kediri" → "kota")
     for (const k of Object.keys(countMap)) {
       if (key.includes(k) || k.includes(key)) return countMap[k];
     }
     return 0;
   }
-
   const allCounts = allFeatures.map(f => getCount(f.properties.district));
   const maxCount = Math.max(...allCounts, 1);
+  const totalCount = allCounts.reduce((s, c) => s + c, 0);
+  const totalKota = kotaFeatures.reduce((s, f) => s + getCount(f.properties.district), 0);
+  const totalKab  = kabFeatures.reduce((s, f) => s + getCount(f.properties.district), 0);
 
-  // Color scales: blue for Kota, gold for Kab
-  function kotaColor(intensity) {
-    const l = 0.75 - intensity * 0.28;
-    const c = 0.08 + intensity * 0.12;
-    return `oklch(${l.toFixed(2)} ${c.toFixed(2)} 252)`;
+  // --- Color scales ---
+  function kotaColor(t) { return `oklch(${(0.75 - t*0.28).toFixed(2)} ${(0.08 + t*0.12).toFixed(2)} 252)`; }
+  function kabColor(t)  { return `oklch(${(0.88 - t*0.30).toFixed(2)} ${(0.06 + t*0.13).toFixed(2)} 82)`; }
+
+  // --- Sort for ranking ---
+  const sortedAll = allFeatures
+    .map(f => ({ name: f.properties.district, count: getCount(f.properties.district), isKota: f.properties.regency === 'Kota Kediri' }))
+    .sort((a, b) => b.count - a.count);
+
+  // --- Zoom/pan helpers ---
+  const zoomLevel = GEO_W / vb.w;
+
+  function zoomAround(cx, cy, factor) {
+    setVb(prev => {
+      const newW = geoClamp(prev.w * factor, GEO_W / GEO_MAX_ZOOM, GEO_W / GEO_MIN_ZOOM);
+      const newH = newW * (GEO_H / GEO_W);
+      const rx = (cx - prev.x) / prev.w, ry = (cy - prev.y) / prev.h;
+      return { x: cx - rx * newW, y: cy - ry * newH, w: newW, h: newH };
+    });
   }
-  function kabColor(intensity) {
-    const l = 0.88 - intensity * 0.30;
-    const c = 0.06 + intensity * 0.13;
-    return `oklch(${l.toFixed(2)} ${c.toFixed(2)} 82)`;
+  function zoomIn()  { zoomAround(vb.x + vb.w/2, vb.y + vb.h/2, 0.65); }
+  function zoomOut() { zoomAround(vb.x + vb.w/2, vb.y + vb.h/2, 1.54); }
+  function resetView() { setVb(GEO_INIT_VB); setSelected(null); }
+
+  function zoomToFeature(f) {
+    let fMinX = Infinity, fMaxX = -Infinity, fMinY = Infinity, fMaxY = -Infinity;
+    function scanSVG(arr) {
+      if (typeof arr[0] === 'number') {
+        const [px, py] = project(arr[0], arr[1]);
+        if (px < fMinX) fMinX = px; if (px > fMaxX) fMaxX = px;
+        if (py < fMinY) fMinY = py; if (py > fMaxY) fMaxY = py;
+      } else { arr.forEach(scanSVG); }
+    }
+    scanSVG(f.geometry.coordinates);
+    const pad = 22;
+    const fw = fMaxX - fMinX + pad * 2, fh = fMaxY - fMinY + pad * 2;
+    const newW = geoClamp(Math.max(fw, fh * GEO_W / GEO_H), GEO_W / GEO_MAX_ZOOM, GEO_W);
+    const newH = newW * (GEO_H / GEO_W);
+    const cx = (fMinX + fMaxX) / 2, cy = (fMinY + fMaxY) / 2;
+    setVb({ x: cx - newW/2, y: cy - newH/2, w: newW, h: newH });
   }
 
-  const kotaFeatures = (kotaGeo && kotaGeo.features) || [];
-  const kabFeatures = (kabGeo && kabGeo.features) || [];
+  // --- Drag handlers ---
+  function onSVGMouseDown(e) {
+    if (e.button !== 0) return;
+    dragRef.current = { startX: e.clientX, startY: e.clientY, vbX: vb.x, vbY: vb.y, vbW: vb.w, vbH: vb.h, moved: false };
+  }
+  function onSVGMouseMove(e) {
+    if (!dragRef.current) return;
+    const dx = e.clientX - dragRef.current.startX, dy = e.clientY - dragRef.current.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragRef.current.moved = true;
+    if (!dragRef.current.moved) return;
+    setTooltip(null);
+    const rect = svgRef.current.getBoundingClientRect();
+    const sdx = dx / rect.width * dragRef.current.vbW;
+    const sdy = dy / rect.height * dragRef.current.vbH;
+    setVb(prev => ({ ...prev, x: dragRef.current.vbX - sdx, y: dragRef.current.vbY - sdy }));
+  }
+  function onSVGMouseUp() { dragRef.current = null; }
 
-  function handleMouseMove(e, name, count, type) {
-    const rect = e.currentTarget.closest('svg').parentElement.getBoundingClientRect();
+  // --- Feature interaction ---
+  function onFeatureMouseMove(e, name, count, type) {
+    if (dragRef.current && dragRef.current.moved) return;
+    const rect = svgRef.current.parentElement.getBoundingClientRect();
     setTooltip({ name, count, type, x: e.clientX - rect.left, y: e.clientY - rect.top });
   }
+  function onFeatureClick(e, f, count, type) {
+    e.stopPropagation();
+    if (dragRef.current && dragRef.current.moved) return;
+    setSelected({ name: f.properties.district, count, type });
+    zoomToFeature(f);
+  }
 
+  // Sizes that stay constant on screen regardless of zoom level
+  const sz = vb.w / GEO_W; // SVG units per screen-pixel-equivalent (scale factor)
+  const badgeR    = 9 * sz;
+  const labelSz   = 7 * sz;
+  const strokeKab = 0.8 * sz;
+  const strokeKota = 1.3 * sz;
+
+  const layerVisible = (isKota) =>
+    activeLayer === 'both' || (activeLayer === 'kota' && isKota) || (activeLayer === 'kab' && !isKota);
+
+  // --- Render ---
   return (
     <div style={{ position: "relative", userSelect: "none" }}>
-      <svg viewBox={`0 0 ${W} ${H}`}
-           style={{ width: "100%", height: "auto", display: "block", borderRadius: 10,
-                    background: "var(--blue-50)", border: "1px solid var(--line)" }}>
-        {/* Kab Kediri — rendered first (back) */}
-        {kabFeatures.map((f, i) => {
-          const count = getCount(f.properties.district);
-          const intensity = count / maxCount;
-          return (
-            <path key={'kab-' + i}
-                  d={featureToD(f.geometry)}
-                  fill={kabColor(intensity)}
-                  stroke="white" strokeWidth={0.8} strokeLinejoin="round"
-                  style={{ cursor: "pointer", transition: "fill 0.15s" }}
-                  onMouseMove={e => handleMouseMove(e, f.properties.district, count, 'kab')}
-                  onMouseLeave={() => setTooltip(null)} />
-          );
-        })}
-        {/* Kota Kediri — rendered on top (front) */}
-        {kotaFeatures.map((f, i) => {
-          const count = getCount(f.properties.district);
-          const intensity = count / maxCount;
-          return (
-            <path key={'kota-' + i}
-                  d={featureToD(f.geometry)}
-                  fill={kotaColor(intensity)}
-                  stroke="white" strokeWidth={1.2} strokeLinejoin="round"
-                  style={{ cursor: "pointer", transition: "fill 0.15s" }}
-                  onMouseMove={e => handleMouseMove(e, f.properties.district, count, 'kota')}
-                  onMouseLeave={() => setTooltip(null)} />
-          );
-        })}
-        {/* Labels for kota (always visible, 3 kecamatan only) */}
-        {kotaFeatures.map((f, i) => {
-          const [cx, cy] = getCentroid(f.geometry);
-          const count = getCount(f.properties.district);
-          const shortName = f.properties.district.replace('Kota Kediri', 'Kota').replace('Kediri', '').trim();
-          return (
-            <g key={'label-kota-' + i} style={{ pointerEvents: "none" }}>
-              <text x={cx} y={cy - 3} textAnchor="middle" dominantBaseline="auto"
-                    fontSize={8} fontWeight={700} fill="white"
-                    style={{ textShadow: "0 1px 2px rgba(0,0,0,0.4)", fontFamily: "sans-serif" }}>
-                {shortName}
-              </text>
-              <text x={cx} y={cy + 8} textAnchor="middle" dominantBaseline="auto"
-                    fontSize={7} fill="rgba(255,255,255,0.9)"
-                    style={{ fontFamily: "monospace" }}>
-                {count}
-              </text>
-            </g>
-          );
-        })}
-        {/* Labels for top-8 kab kecamatan by count */}
-        {kabFeatures
-          .map(f => ({ f, count: getCount(f.properties.district) }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 8)
-          .map(({ f, count }, i) => {
-            const [cx, cy] = getCentroid(f.geometry);
-            return (
-              <g key={'label-kab-' + i} style={{ pointerEvents: "none" }}>
-                <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
-                      fontSize={6.5} fontWeight={600} fill="var(--ink)"
-                      style={{ fontFamily: "sans-serif" }}>
-                  {f.properties.district}
-                </text>
-              </g>
-            );
-          })}
-      </svg>
 
-      {/* Hover tooltip */}
-      {tooltip && (
-        <div style={{ position: "absolute", left: tooltip.x + 10, top: tooltip.y - 10,
-                      background: "var(--ink)", color: "white", padding: "6px 10px",
-                      borderRadius: 8, fontSize: 12, pointerEvents: "none", zIndex: 10,
-                      boxShadow: "0 4px 16px rgba(0,0,0,0.25)", whiteSpace: "nowrap" }}>
-          <div style={{ fontWeight: 700, marginBottom: 2 }}>{tooltip.name}</div>
-          <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 11 }}>
-            {tooltip.type === 'kota' ? 'Kota Kediri' : 'Kab. Kediri'} · {tooltip.count} alumni
+      {/* ── Toolbar ── */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 8, alignItems: "center", flexWrap: "wrap" }}>
+
+        {/* Zoom group */}
+        <div style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+          <button onClick={zoomIn}  style={MAP_BTN_BASE} title="Zoom In">＋</button>
+          <div style={{ padding: "5px 8px", fontSize: 11, fontFamily: "monospace",
+                        borderLeft: "1px solid var(--line)", borderRight: "1px solid var(--line)",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        minWidth: 50, color: "var(--ink-soft)", background: "var(--bg)" }}>
+            {Math.round(zoomLevel * 100)}%
+          </div>
+          <button onClick={zoomOut} style={MAP_BTN_BASE} title="Zoom Out">－</button>
+        </div>
+
+        <button onClick={resetView} style={{ ...MAP_BTN_BASE, border: "1px solid var(--line)", borderRadius: 8 }}
+                title="Reset tampilan">
+          ⊙ Reset
+        </button>
+
+        {/* Layer toggle */}
+        <div style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+          {[['both','Semua'],['kota','Kota'],['kab','Kab']].map(([v, l], i) => (
+            <button key={v} onClick={() => setActiveLayer(v)}
+                     style={{ ...MAP_BTN_BASE,
+                              background: activeLayer === v ? "var(--blue-700)" : "white",
+                              color:      activeLayer === v ? "white" : "var(--ink)",
+                              borderLeft: i > 0 ? "1px solid var(--line)" : "none" }}>
+              {l}
+            </button>
+          ))}
+        </div>
+
+        {/* Badge toggle */}
+        <button onClick={() => setShowBadges(b => !b)}
+                 style={{ ...MAP_BTN_BASE, border: "1px solid var(--line)", borderRadius: 8,
+                          background: showBadges ? "var(--blue-50)" : "white",
+                          color: showBadges ? "var(--blue-700)" : "var(--muted)" }}>
+          ◉ Badge
+        </button>
+
+        {/* Label toggle */}
+        <button onClick={() => setShowLabels(b => !b)}
+                 style={{ ...MAP_BTN_BASE, border: "1px solid var(--line)", borderRadius: 8,
+                          background: showLabels ? "var(--blue-50)" : "white",
+                          color: showLabels ? "var(--blue-700)" : "var(--muted)" }}>
+          𝐓 Label
+        </button>
+
+        {selected && (
+          <button onClick={resetView}
+                   style={{ ...MAP_BTN_BASE, border: "1px solid var(--line)", borderRadius: 8,
+                            color: "var(--muted)", marginLeft: "auto" }}>
+            ✕ Hapus Seleksi
+          </button>
+        )}
+      </div>
+
+      {/* ── Map + Side Panel ── */}
+      <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
+
+        {/* SVG Map */}
+        <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
+          <svg ref={svgRef}
+               viewBox={`${vb.x.toFixed(1)} ${vb.y.toFixed(1)} ${vb.w.toFixed(1)} ${vb.h.toFixed(1)}`}
+               preserveAspectRatio="xMidYMid meet"
+               style={{ width: "100%", height: "auto", display: "block", borderRadius: 10,
+                        background: "oklch(0.95 0.025 240)", border: "1px solid var(--line)",
+                        cursor: "grab", touchAction: "none" }}
+               onMouseDown={onSVGMouseDown}
+               onMouseMove={onSVGMouseMove}
+               onMouseUp={onSVGMouseUp}
+               onMouseLeave={() => { onSVGMouseUp(); setTooltip(null); setHovering(null); }}>
+
+            {/* Kab Kediri (back layer) */}
+            {kabFeatures.map((f, i) => {
+              if (!layerVisible(false)) return null;
+              const count = getCount(f.properties.district);
+              const isSel = selected && selected.name === f.properties.district;
+              const isHov = hovering === f.properties.district;
+              return (
+                <path key={'kab-' + i} d={featureToD(f.geometry)}
+                      fill={isSel ? "oklch(0.60 0.22 82)" : kabColor(count / maxCount)}
+                      stroke={isSel ? "oklch(0.50 0.20 70)" : isHov ? "oklch(0.65 0.18 82)" : "white"}
+                      strokeWidth={isSel ? strokeKab * 2.5 : strokeKab}
+                      strokeLinejoin="round"
+                      style={{ cursor: "pointer" }}
+                      onMouseEnter={() => setHovering(f.properties.district)}
+                      onMouseLeave={() => { setHovering(null); setTooltip(null); }}
+                      onMouseMove={e => onFeatureMouseMove(e, f.properties.district, count, 'kab')}
+                      onClick={e => onFeatureClick(e, f, count, 'kab')} />
+              );
+            })}
+
+            {/* Kota Kediri (front layer) */}
+            {kotaFeatures.map((f, i) => {
+              if (!layerVisible(true)) return null;
+              const count = getCount(f.properties.district);
+              const isSel = selected && selected.name === f.properties.district;
+              const isHov = hovering === f.properties.district;
+              return (
+                <path key={'kota-' + i} d={featureToD(f.geometry)}
+                      fill={isSel ? "oklch(0.40 0.24 252)" : kotaColor(count / maxCount)}
+                      stroke={isSel ? "oklch(0.68 0.14 252)" : isHov ? "oklch(0.60 0.20 252)" : "white"}
+                      strokeWidth={isSel ? strokeKota * 2.5 : strokeKota}
+                      strokeLinejoin="round"
+                      style={{ cursor: "pointer" }}
+                      onMouseEnter={() => setHovering(f.properties.district)}
+                      onMouseLeave={() => { setHovering(null); setTooltip(null); }}
+                      onMouseMove={e => onFeatureMouseMove(e, f.properties.district, count, 'kota')}
+                      onClick={e => onFeatureClick(e, f, count, 'kota')} />
+              );
+            })}
+
+            {/* Kecamatan name labels */}
+            {showLabels && allFeatures.map((f, i) => {
+              const isKota = f.properties.regency === 'Kota Kediri';
+              if (!layerVisible(isKota)) return null;
+              // Only show labels for top kecamatan and all kota
+              const rank = sortedAll.findIndex(x => x.name === f.properties.district);
+              if (!isKota && rank >= 15) return null;
+              const [cx, cy] = getCentroid(f.geometry);
+              const shortName = f.properties.district.replace('Kota Kediri', 'Kota').trim();
+              return (
+                <text key={'lbl-' + i} x={cx} y={cy - badgeR - labelSz * 0.4}
+                      textAnchor="middle" dominantBaseline="auto"
+                      fontSize={isKota ? labelSz * 1.1 : labelSz} fontWeight={isKota ? 800 : 600}
+                      fill={isKota ? "white" : "oklch(0.25 0.04 252)"}
+                      style={{ pointerEvents: "none", fontFamily: "sans-serif",
+                               filter: isKota
+                                 ? "drop-shadow(0 0 2px rgba(0,0,0,0.6))"
+                                 : "drop-shadow(0 0 2px rgba(255,255,255,1))" }}>
+                  {shortName}
+                </text>
+              );
+            })}
+
+            {/* Counter badges — constant apparent size via sz scaling */}
+            {showBadges && allFeatures.map((f, i) => {
+              const isKota = f.properties.regency === 'Kota Kediri';
+              if (!layerVisible(isKota)) return null;
+              const count = getCount(f.properties.district);
+              const [cx, cy] = getCentroid(f.geometry);
+              const r = badgeR;
+              const label = count >= 1000 ? (count/1000).toFixed(1)+'k' : String(count);
+              const fs = r * (label.length > 3 ? 0.65 : label.length > 2 ? 0.75 : 0.85);
+              const isSel = selected && selected.name === f.properties.district;
+              const bg = isSel
+                ? "oklch(0.30 0.05 252)"
+                : isKota ? "var(--blue-700)" : "oklch(0.55 0.17 70)";
+              return (
+                <g key={'badge-' + i} style={{ pointerEvents: "none" }}>
+                  {/* Outer ring */}
+                  <circle cx={cx} cy={cy} r={r + r*0.25} fill="white" opacity={0.75} />
+                  {/* Colored fill */}
+                  <circle cx={cx} cy={cy} r={r} fill={bg} />
+                  {/* Inner highlight arc (top-left) */}
+                  <circle cx={cx - r*0.15} cy={cy - r*0.15} r={r * 0.55}
+                          fill="rgba(255,255,255,0.15)" />
+                  {/* Count text */}
+                  <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
+                        fontSize={fs} fontWeight={800} fill="white"
+                        style={{ fontFamily: "monospace", letterSpacing: "-0.02em" }}>
+                    {label}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Mini compass rose */}
+            <g style={{ pointerEvents: "none" }} opacity={0.5}>
+              <text x={GEO_W - 18} y={GEO_H - 14} textAnchor="middle" fontSize={8 * sz}
+                    fill="var(--ink-soft)" style={{ fontFamily: "sans-serif" }}>N</text>
+              <line x1={GEO_W - 18} y1={GEO_H - 24} x2={GEO_W - 18} y2={GEO_H - 28}
+                    stroke="var(--ink-soft)" strokeWidth={sz} />
+            </g>
+          </svg>
+
+          {/* Hover tooltip */}
+          {tooltip && (
+            <div style={{ position: "absolute", left: tooltip.x + 14, top: tooltip.y - 42,
+                          background: "var(--ink)", color: "white", padding: "8px 12px",
+                          borderRadius: 10, fontSize: 12, pointerEvents: "none", zIndex: 20,
+                          boxShadow: "0 6px 24px rgba(0,0,0,0.3)", whiteSpace: "nowrap" }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{tooltip.name}</div>
+              <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 11, marginTop: 2 }}>
+                {tooltip.type === 'kota' ? 'Kota Kediri' : 'Kab. Kediri'}
+              </div>
+              <div style={{ marginTop: 6, display: "flex", alignItems: "baseline", gap: 4 }}>
+                <span style={{ fontSize: 20, fontWeight: 700 }}>{tooltip.count}</span>
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>alumni</span>
+              </div>
+              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", marginTop: 4 }}>
+                Klik untuk zoom & detail
+              </div>
+            </div>
+          )}
+
+          {/* Zoom hint overlay (top-left corner) */}
+          <div style={{ position: "absolute", top: 8, left: 8, fontSize: 10,
+                        color: "rgba(0,0,0,0.35)", pointerEvents: "none",
+                        background: "rgba(255,255,255,0.7)", padding: "3px 7px",
+                        borderRadius: 6, backdropFilter: "blur(4px)" }}>
+            Scroll = zoom · Drag = geser
           </div>
         </div>
-      )}
 
-      {/* Legend */}
-      <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 11, color: "var(--ink-soft)", justifyContent: "center" }}>
+        {/* ── Side Panel ── */}
+        <div style={{ width: 175, flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+          {selected ? (
+            <>
+              {/* Selected detail card */}
+              <div className="card" style={{ padding: 14 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.07em",
+                               textTransform: "uppercase", marginBottom: 6,
+                               color: selected.type === 'kota' ? "var(--blue-700)" : "oklch(0.55 0.17 70)" }}>
+                  {selected.type === 'kota' ? '■ Kota Kediri' : '■ Kab. Kediri'}
+                </div>
+                <div style={{ fontWeight: 700, fontSize: 15, color: "var(--ink)", lineHeight: 1.2, marginBottom: 12 }}>
+                  {selected.name}
+                </div>
+
+                {/* Big count */}
+                <div style={{ fontSize: 40, fontWeight: 700, lineHeight: 1,
+                               fontFamily: "var(--font-display)",
+                               color: selected.type === 'kota' ? "var(--blue-700)" : "oklch(0.55 0.17 70)" }}>
+                  {selected.count}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>alumni terdaftar</div>
+
+                {/* Rank & porsi */}
+                {(() => {
+                  const rank = sortedAll.findIndex(x => x.name === selected.name) + 1;
+                  const pct = totalCount > 0 ? (selected.count / totalCount * 100).toFixed(1) : 0;
+                  return (
+                    <>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 12 }}>
+                        <div style={{ padding: "7px 8px", background: "var(--bg)", borderRadius: 8, textAlign: "center" }}>
+                          <div style={{ fontSize: 9, color: "var(--muted)", marginBottom: 2 }}>Peringkat</div>
+                          <div style={{ fontSize: 19, fontWeight: 700, lineHeight: 1 }}>#{rank}</div>
+                          <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 1 }}>dari {allFeatures.length}</div>
+                        </div>
+                        <div style={{ padding: "7px 8px", background: "var(--bg)", borderRadius: 8, textAlign: "center" }}>
+                          <div style={{ fontSize: 9, color: "var(--muted)", marginBottom: 2 }}>Porsi</div>
+                          <div style={{ fontSize: 19, fontWeight: 700, lineHeight: 1 }}>{pct}%</div>
+                          <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 1 }}>dari total</div>
+                        </div>
+                      </div>
+                      {/* Progress bar */}
+                      <div style={{ height: 5, background: "var(--line-soft)", borderRadius: 99, marginTop: 10 }}>
+                        <div style={{ width: `${pct}%`, height: "100%", borderRadius: 99,
+                                       background: selected.type === 'kota' ? "var(--blue-700)" : "oklch(0.65 0.17 82)" }} />
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Top 6 list */}
+              <div className="card" style={{ padding: 12, flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.07em",
+                               textTransform: "uppercase", color: "var(--ink-soft)", marginBottom: 8 }}>
+                  Peringkat Teratas
+                </div>
+                {sortedAll.slice(0, 6).map((item, i) => {
+                  const isThis = item.name === selected.name;
+                  return (
+                    <div key={item.name}
+                         style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5,
+                                  padding: "3px 6px", borderRadius: 6, fontSize: 11,
+                                  background: isThis ? "var(--blue-50)" : "transparent" }}>
+                      <span style={{ fontSize: 9, color: "var(--muted)", fontFamily: "monospace", minWidth: 14 }}>
+                        {i + 1}.
+                      </span>
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                      fontWeight: isThis ? 700 : 500,
+                                      color: isThis ? "var(--blue-700)" : "var(--ink)" }}>
+                        {item.name}
+                      </span>
+                      <span style={{ fontFamily: "monospace", fontSize: 10, color: "var(--ink-soft)", flexShrink: 0 }}>
+                        {item.count}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Summary stats */}
+              <div className="card" style={{ padding: 14 }}>
+                <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--muted)" }}>
+                  Total Alumni
+                </div>
+                <div style={{ fontSize: 34, fontWeight: 700, color: "var(--blue-700)",
+                               fontFamily: "var(--font-display)", lineHeight: 1.1, marginTop: 4 }}>
+                  {totalCount.toLocaleString('id-ID')}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div className="card" style={{ padding: 12 }}>
+                  <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Kota</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: "var(--blue-700)",
+                                 fontFamily: "var(--font-display)", lineHeight: 1.1, marginTop: 3 }}>
+                    {totalKota}
+                  </div>
+                  <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>3 kec.</div>
+                </div>
+                <div className="card" style={{ padding: 12 }}>
+                  <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Kab.</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: "oklch(0.55 0.17 70)",
+                                 fontFamily: "var(--font-display)", lineHeight: 1.1, marginTop: 3 }}>
+                    {totalKab}
+                  </div>
+                  <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>26 kec.</div>
+                </div>
+              </div>
+
+              {/* Controls hint */}
+              <div style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--line)",
+                             background: "var(--bg)", fontSize: 11, color: "var(--ink-soft)", lineHeight: 1.8 }}>
+                <div style={{ fontWeight: 700, color: "var(--ink)", marginBottom: 4, fontSize: 11 }}>Kontrol Peta</div>
+                <div>🖱 Scroll → Zoom in/out</div>
+                <div>✋ Drag → Geser peta</div>
+                <div>👆 Klik → Detail & zoom</div>
+              </div>
+
+              {/* Top 5 preview */}
+              <div className="card" style={{ padding: 12, flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.07em",
+                               textTransform: "uppercase", color: "var(--ink-soft)", marginBottom: 8 }}>
+                  Top 5 Kecamatan
+                </div>
+                {sortedAll.slice(0, 5).map((item, i) => (
+                  <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, fontSize: 11 }}>
+                    <span style={{ fontSize: 9, color: "var(--muted)", fontFamily: "monospace", minWidth: 14 }}>{i+1}.</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {item.name}
+                      </div>
+                      <div style={{ fontSize: 9, color: "var(--muted)" }}>
+                        {item.isKota ? 'Kota' : 'Kab.'} Kediri
+                      </div>
+                    </div>
+                    <span style={{ fontFamily: "monospace", fontSize: 10, fontWeight: 700, color: "var(--ink-soft)", flexShrink: 0 }}>
+                      {item.count}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Legend ── */}
+      <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 11,
+                    color: "var(--ink-soft)", justifyContent: "center", flexWrap: "wrap",
+                    alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
           <div style={{ width: 14, height: 10, borderRadius: 2, background: "oklch(0.55 0.18 252)" }} />
           Kota Kediri
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <div style={{ width: 14, height: 10, borderRadius: 2, background: "oklch(0.70 0.17 82)" }} />
+          <div style={{ width: 14, height: 10, borderRadius: 2, background: "oklch(0.68 0.17 82)" }} />
           Kab. Kediri
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          Lebih gelap = lebih banyak alumni
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", gap: 2 }}>
+            {[0.15, 0.4, 0.65, 0.9].map(t => (
+              <div key={t} style={{ width: 10, height: 10, borderRadius: 2, background: `oklch(${(0.88 - t*0.30).toFixed(2)} ${(0.06 + t*0.13).toFixed(2)} 82)` }} />
+            ))}
+          </div>
+          Intensitas = jumlah alumni
         </div>
       </div>
     </div>
   );
 }
 
-function FakeMap() {
-  return <KediriGeoMap />;
-}
+function FakeMap() { return <KediriGeoMap />; }
 
 Object.assign(window, { AdminDataAlumni, AdminSebaran, KediriGeoMap, FakeMap });
