@@ -300,7 +300,7 @@ function AdminSebaran() {
                 <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>Heatmap berdasarkan domisili</div>
               </div>
             </div>
-            <FakeMap />
+            <KediriGeoMap />
           </div>
           <div className="card" style={{ padding: 24 }}>
             <h3 className="display" style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>Distribusi Wilayah</h3>
@@ -368,43 +368,256 @@ function AdminSebaran() {
   );
 }
 
-function FakeMap() {
-  const blobs = [
-    { x: 35, y: 45, r: 70, n: "Mojoroto", v: 189, color: "var(--blue-700)" },
-    { x: 50, y: 40, r: 65, n: "Kota", v: 189, color: "var(--blue-700)" },
-    { x: 48, y: 58, r: 60, n: "Pesantren", v: 167, color: "var(--blue-700)" },
-    { x: 72, y: 30, r: 55, n: "Pare", v: 98, color: "var(--gold-500)" },
-    { x: 65, y: 50, r: 48, n: "Ngasem", v: 87, color: "var(--gold-500)" },
-    { x: 68, y: 70, r: 44, n: "Gurah", v: 76, color: "var(--gold-500)" },
-    { x: 82, y: 60, r: 40, n: "Kandangan", v: 71, color: "var(--gold-500)" },
-    { x: 25, y: 75, r: 36, n: "Mojo", v: 42, color: "var(--gold-500)" },
+// === Real GeoJSON SVG Map ===
+function KediriGeoMap() {
+  const [kotaGeo, setKotaGeo] = React.useState(null);
+  const [kabGeo, setKabGeo] = React.useState(null);
+  const [sebaranData, setSebaranData] = React.useState([]);
+  const [tooltip, setTooltip] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const svgRef = React.useRef(null);
+
+  React.useEffect(() => {
+    Promise.all([
+      fetch('/assets/kota-kediri-map.geojson').then(r => r.json()),
+      fetch('/assets/kab-kediri-map.geojson').then(r => r.json()),
+      AnalyticsAPI.sebaran().then(r => (r.data && r.data.byKecamatan) || []).catch(() => []),
+    ]).then(([kota, kab, sebaran]) => {
+      setKotaGeo(kota);
+      setKabGeo(kab);
+      setSebaranData(sebaran);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div style={{ height: 400, display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "var(--ink-soft)", fontSize: 13, borderRadius: 12,
+                    background: "var(--bg)", border: "1px solid var(--line)" }}>
+        Memuat peta Kediri...
+      </div>
+    );
+  }
+
+  const allFeatures = [
+    ...((kotaGeo && kotaGeo.features) || []),
+    ...((kabGeo && kabGeo.features) || []),
   ];
+
+  if (allFeatures.length === 0) {
+    return (
+      <div style={{ height: 400, display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "var(--ink-soft)", fontSize: 13, borderRadius: 12,
+                    background: "var(--bg)", border: "1px solid var(--line)" }}>
+        Gagal memuat data peta
+      </div>
+    );
+  }
+
+  // Compute bounding box from all coordinates
+  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  function scanCoords(arr) {
+    if (typeof arr[0] === 'number') {
+      const lon = arr[0], lat = arr[1];
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    } else {
+      arr.forEach(scanCoords);
+    }
+  }
+  allFeatures.forEach(f => scanCoords(f.geometry.coordinates));
+
+  const W = 600, H = 400, PAD = 12;
+  const lonSpan = maxLon - minLon;
+  const latSpan = maxLat - minLat;
+  const scaleX = (W - PAD * 2) / lonSpan;
+  const scaleY = (H - PAD * 2) / latSpan;
+  const scale = Math.min(scaleX, scaleY);
+  // Center the map
+  const offX = PAD + ((W - PAD * 2) - lonSpan * scale) / 2;
+  const offY = PAD + ((H - PAD * 2) - latSpan * scale) / 2;
+
+  function project(lon, lat) {
+    return [
+      offX + (lon - minLon) * scale,
+      H - offY - (lat - minLat) * scale,
+    ];
+  }
+
+  function ringToD(ring) {
+    return ring.map((coord, i) => {
+      const [x, y] = project(coord[0], coord[1]);
+      return (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1);
+    }).join('') + 'Z';
+  }
+
+  function featureToD(geometry) {
+    // MultiPolygon: coords = [[[ring], ...], ...]
+    return geometry.coordinates.map(polygon =>
+      polygon.map(ringToD).join('')
+    ).join('');
+  }
+
+  function getCentroid(geometry) {
+    // Use centroid of first ring of first polygon
+    const ring = geometry.coordinates[0][0];
+    let sumLon = 0, sumLat = 0;
+    ring.forEach(c => { sumLon += c[0]; sumLat += c[1]; });
+    return project(sumLon / ring.length, sumLat / ring.length);
+  }
+
+  // Build alumni count lookup from API data + static fallback
+  const countMap = {};
+  // Static fallback
+  KECAMATAN_KOTA.forEach(k => { countMap[k.nama.toLowerCase()] = k.jumlah; });
+  KECAMATAN_KAB.forEach(k => { countMap[k.nama.toLowerCase()] = k.jumlah; });
+  // API data overrides
+  sebaranData.forEach(d => {
+    if (d.name) countMap[d.name.toLowerCase()] = d.count;
+  });
+
+  function getCount(districtName) {
+    if (!districtName) return 0;
+    const key = districtName.toLowerCase();
+    if (countMap[key] !== undefined) return countMap[key];
+    // Partial match (e.g. "Kota Kediri" → "kota")
+    for (const k of Object.keys(countMap)) {
+      if (key.includes(k) || k.includes(key)) return countMap[k];
+    }
+    return 0;
+  }
+
+  const allCounts = allFeatures.map(f => getCount(f.properties.district));
+  const maxCount = Math.max(...allCounts, 1);
+
+  // Color scales: blue for Kota, gold for Kab
+  function kotaColor(intensity) {
+    const l = 0.75 - intensity * 0.28;
+    const c = 0.08 + intensity * 0.12;
+    return `oklch(${l.toFixed(2)} ${c.toFixed(2)} 252)`;
+  }
+  function kabColor(intensity) {
+    const l = 0.88 - intensity * 0.30;
+    const c = 0.06 + intensity * 0.13;
+    return `oklch(${l.toFixed(2)} ${c.toFixed(2)} 82)`;
+  }
+
+  const kotaFeatures = (kotaGeo && kotaGeo.features) || [];
+  const kabFeatures = (kabGeo && kabGeo.features) || [];
+
+  function handleMouseMove(e, name, count, type) {
+    const rect = e.currentTarget.closest('svg').parentElement.getBoundingClientRect();
+    setTooltip({ name, count, type, x: e.clientX - rect.left, y: e.clientY - rect.top });
+  }
+
   return (
-    <div style={{ position: "relative", height: 400, borderRadius: 12,
-                  background: "linear-gradient(180deg, var(--bg) 0%, var(--blue-50) 100%)",
-                  border: "1px solid var(--line)", overflow: "hidden" }}>
-      <div style={{ position: "absolute", inset: 0, opacity: 0.4,
-                    backgroundImage: `linear-gradient(var(--line) 1px, transparent 1px),linear-gradient(90deg, var(--line) 1px, transparent 1px)`,
-                    backgroundSize: "40px 40px" }} />
-      <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none"
-            style={{ position: "absolute", inset: 0 }}>
-        <path d="M 15 25 Q 20 15, 38 12 T 75 18 Q 90 30, 88 50 T 75 80 Q 50 92, 30 85 T 12 60 Z"
-              fill="none" stroke="var(--blue-700)" strokeWidth="0.3" strokeDasharray="1 1" opacity="0.5" />
+    <div style={{ position: "relative", userSelect: "none" }}>
+      <svg viewBox={`0 0 ${W} ${H}`}
+           style={{ width: "100%", height: "auto", display: "block", borderRadius: 10,
+                    background: "var(--blue-50)", border: "1px solid var(--line)" }}>
+        {/* Kab Kediri — rendered first (back) */}
+        {kabFeatures.map((f, i) => {
+          const count = getCount(f.properties.district);
+          const intensity = count / maxCount;
+          return (
+            <path key={'kab-' + i}
+                  d={featureToD(f.geometry)}
+                  fill={kabColor(intensity)}
+                  stroke="white" strokeWidth={0.8} strokeLinejoin="round"
+                  style={{ cursor: "pointer", transition: "fill 0.15s" }}
+                  onMouseMove={e => handleMouseMove(e, f.properties.district, count, 'kab')}
+                  onMouseLeave={() => setTooltip(null)} />
+          );
+        })}
+        {/* Kota Kediri — rendered on top (front) */}
+        {kotaFeatures.map((f, i) => {
+          const count = getCount(f.properties.district);
+          const intensity = count / maxCount;
+          return (
+            <path key={'kota-' + i}
+                  d={featureToD(f.geometry)}
+                  fill={kotaColor(intensity)}
+                  stroke="white" strokeWidth={1.2} strokeLinejoin="round"
+                  style={{ cursor: "pointer", transition: "fill 0.15s" }}
+                  onMouseMove={e => handleMouseMove(e, f.properties.district, count, 'kota')}
+                  onMouseLeave={() => setTooltip(null)} />
+          );
+        })}
+        {/* Labels for kota (always visible, 3 kecamatan only) */}
+        {kotaFeatures.map((f, i) => {
+          const [cx, cy] = getCentroid(f.geometry);
+          const count = getCount(f.properties.district);
+          const shortName = f.properties.district.replace('Kota Kediri', 'Kota').replace('Kediri', '').trim();
+          return (
+            <g key={'label-kota-' + i} style={{ pointerEvents: "none" }}>
+              <text x={cx} y={cy - 3} textAnchor="middle" dominantBaseline="auto"
+                    fontSize={8} fontWeight={700} fill="white"
+                    style={{ textShadow: "0 1px 2px rgba(0,0,0,0.4)", fontFamily: "sans-serif" }}>
+                {shortName}
+              </text>
+              <text x={cx} y={cy + 8} textAnchor="middle" dominantBaseline="auto"
+                    fontSize={7} fill="rgba(255,255,255,0.9)"
+                    style={{ fontFamily: "monospace" }}>
+                {count}
+              </text>
+            </g>
+          );
+        })}
+        {/* Labels for top-8 kab kecamatan by count */}
+        {kabFeatures
+          .map(f => ({ f, count: getCount(f.properties.district) }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 8)
+          .map(({ f, count }, i) => {
+            const [cx, cy] = getCentroid(f.geometry);
+            return (
+              <g key={'label-kab-' + i} style={{ pointerEvents: "none" }}>
+                <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
+                      fontSize={6.5} fontWeight={600} fill="var(--ink)"
+                      style={{ fontFamily: "sans-serif" }}>
+                  {f.properties.district}
+                </text>
+              </g>
+            );
+          })}
       </svg>
-      {blobs.map((b, i) => (
-        <div key={i} style={{ position: "absolute", left: `${b.x}%`, top: `${b.y}%`,
-                              width: b.r, height: b.r, borderRadius: "50%",
-                              background: b.color, opacity: 0.55, transform: "translate(-50%, -50%)",
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}>
-          <div style={{ textAlign: "center", color: "white" }}>
-            <div style={{ fontSize: 9, fontWeight: 700, lineHeight: 1 }}>{b.n}</div>
-            <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>{b.v}</div>
+
+      {/* Hover tooltip */}
+      {tooltip && (
+        <div style={{ position: "absolute", left: tooltip.x + 10, top: tooltip.y - 10,
+                      background: "var(--ink)", color: "white", padding: "6px 10px",
+                      borderRadius: 8, fontSize: 12, pointerEvents: "none", zIndex: 10,
+                      boxShadow: "0 4px 16px rgba(0,0,0,0.25)", whiteSpace: "nowrap" }}>
+          <div style={{ fontWeight: 700, marginBottom: 2 }}>{tooltip.name}</div>
+          <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 11 }}>
+            {tooltip.type === 'kota' ? 'Kota Kediri' : 'Kab. Kediri'} · {tooltip.count} alumni
           </div>
         </div>
-      ))}
+      )}
+
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 11, color: "var(--ink-soft)", justifyContent: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <div style={{ width: 14, height: 10, borderRadius: 2, background: "oklch(0.55 0.18 252)" }} />
+          Kota Kediri
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <div style={{ width: 14, height: 10, borderRadius: 2, background: "oklch(0.70 0.17 82)" }} />
+          Kab. Kediri
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          Lebih gelap = lebih banyak alumni
+        </div>
+      </div>
     </div>
   );
 }
 
-Object.assign(window, { AdminDataAlumni, AdminSebaran, FakeMap });
+function FakeMap() {
+  return <KediriGeoMap />;
+}
+
+Object.assign(window, { AdminDataAlumni, AdminSebaran, KediriGeoMap, FakeMap });
